@@ -118,14 +118,9 @@ router.post('/login', validateLogin, async (req, res) => {
  */
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
-    
-    if (!user) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User profile not found'
-      });
-    }
+    // IMPROVEMENT: No need for a second database call. The authenticateToken
+    // middleware already attached the full user object to req.user.
+    const user = req.user;
 
     res.json({
       user: {
@@ -284,4 +279,4 @@ router.delete('/account', authenticateToken, async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;

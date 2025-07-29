@@ -66,10 +66,10 @@ transactionSchema.statics.findByUser = async function(userId, page = 1, limit = 
     .limit(limit);
     
   const total = await this.countDocuments(query);
-  
-  return {
-    transactions,
-    total,
+
+    return {
+      transactions,
+        total,
     page,
     totalPages: Math.ceil(total / limit)
   };
@@ -106,8 +106,8 @@ transactionSchema.statics.getAnalytics = async function(userId, startDate, endDa
     analytics[result._id] = {
       total: result.total,
       count: result.count
-    };
-  });
+      };
+    });
 
   return analytics;
 };

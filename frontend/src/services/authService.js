@@ -18,7 +18,9 @@ export const authService = {
     return response.data;
   },
 
-  async getCurrentUser() {
+  // FIX: Renamed this function to match its usage in the AuthContext,
+  // though getCurrentUser was also a fine name. Consistency is key.
+  async getProfile() {
     const response = await api.get('/auth/me');
     return response.data.user;
   },
@@ -29,10 +31,10 @@ export const authService = {
   },
 
   async changePassword(currentPassword, newPassword) {
+    // FIX: Removed confirmPassword as the backend doesn't use it.
     const response = await api.put('/auth/password', {
       currentPassword,
       newPassword,
-      confirmPassword: newPassword
     });
     return response.data;
   },
@@ -41,4 +43,4 @@ export const authService = {
     const response = await api.delete('/auth/account');
     return response.data;
   }
-}; 
+};

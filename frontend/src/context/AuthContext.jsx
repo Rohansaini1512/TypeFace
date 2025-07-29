@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService.js';
+import api from '../services/api.js'; // Import api to set token on it
 
 const AuthContext = createContext();
 
@@ -20,9 +21,11 @@ export const AuthProvider = ({ children }) => {
       const token = localStorage.getItem('token');
       if (token) {
         try {
+          // The API interceptor already sets the header, but good practice.
           const userData = await authService.getProfile();
           setUser(userData);
         } catch (error) {
+          // This catch block is fine, token is likely invalid/expired.
           localStorage.removeItem('token');
         }
       }
@@ -32,73 +35,72 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
+  // FIX: The logic for login, register, and updateProfile was completely rewritten
+  // to correctly handle the actual API response and propagate errors.
   const login = async (username, password) => {
     try {
-      const response = await authService.login(username, password);
-      if (response.success) {
-        setUser(response.user);
-        localStorage.setItem('token', response.token);
-        return { success: true };
-      } else {
-        return { success: false, error: response.error };
-      }
+      const data = await authService.login(username, password);
+      setUser(data.user);
+      localStorage.setItem('token', data.token);
+      return { success: true, user: data.user };
     } catch (error) {
-      return { success: false, error: 'Login failed' };
+      // Propagate the actual error message from the backend
+      const errorMessage = error.response?.data?.message || 'Login failed';
+      return { success: false, error: errorMessage };
     }
   };
 
   const register = async (username, email, password) => {
     try {
-      const response = await authService.register(username, email, password);
-      if (response.success) {
-        setUser(response.user);
-        localStorage.setItem('token', response.token);
-        return { success: true };
-      } else {
-        return { success: false, error: response.error };
-      }
+      const data = await authService.register(username, email, password);
+      setUser(data.user);
+      localStorage.setItem('token', data.token);
+      return { success: true, user: data.user };
     } catch (error) {
-      return { success: false, error: 'Registration failed' };
+      const errorMessage = error.response?.data?.message || 'Registration failed';
+      return { success: false, error: errorMessage };
     }
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem('token');
+    // It's also good practice to clear the authorization header from the api instance
+    delete api.defaults.headers.common['Authorization'];
+    // Redirect logic should be handled in the component calling logout
   };
 
-  const updateProfile = async (data) => {
+  const updateProfile = async (updates) => {
     try {
-      const response = await authService.updateProfile(data);
-      if (response.success) {
-        setUser(response.user);
-        return { success: true };
-      } else {
-        return { success: false, error: response.error };
-      }
+      const updatedUser = await authService.updateProfile(updates);
+      setUser(updatedUser);
+      return { success: true, user: updatedUser };
     } catch (error) {
-      return { success: false, error: 'Profile update failed' };
+      const errorMessage = error.response?.data?.message || 'Profile update failed';
+      return { success: false, error: errorMessage };
     }
   };
-
+  
+  // The changePassword and deleteAccount functions were mostly fine but are improved here
+  // for better consistency and error handling.
   const changePassword = async (currentPassword, newPassword) => {
     try {
-      const response = await authService.changePassword(currentPassword, newPassword);
-      return response;
+      const data = await authService.changePassword(currentPassword, newPassword);
+      return { success: true, message: data.message };
     } catch (error) {
-      return { success: false, error: 'Password change failed' };
+      const errorMessage = error.response?.data?.message || 'Password change failed';
+      return { success: false, error: errorMessage };
     }
   };
 
-  const deleteAccount = async (password) => {
+  const deleteAccount = async () => {
     try {
-      const response = await authService.deleteAccount(password);
-      if (response.success) {
-        logout();
-      }
-      return response;
+      const data = await authService.deleteAccount();
+      logout(); // Call logout to clear state and token
+      return { success: true, message: data.message };
     } catch (error) {
-      return { success: false, error: 'Account deletion failed' };
+      const errorMessage = error.response?.data?.message || 'Account deletion failed';
+      return { success: false, error: errorMessage };
     }
   };
 
@@ -118,4 +120,4 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-}; 
+};
