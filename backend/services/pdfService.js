@@ -2,8 +2,6 @@ const pdfParse = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
 
-// This is a required helper function for the new pdf-parse options
-// It tries to reconstruct the layout more accurately.
 function render_page(pageData) {
     let render_options = {
         normalizeWhitespace: false,

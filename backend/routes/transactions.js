@@ -15,13 +15,7 @@ const router = express.Router();
 // Apply authentication to all routes in this file
 router.use(authenticateToken);
 
-// --- Specific routes must be defined BEFORE dynamic routes like '/:id' ---
 
-/**
- * @route   GET /api/transactions/summary
- * @desc    Get transaction summary for user within a date range
- * @access  Private
- */
 router.get('/summary', validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -37,11 +31,7 @@ router.get('/summary', validateDateRange, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/transactions/categories
- * @desc    Get all user categories with their transaction counts
- * @access  Private
- */
+
 router.get('/categories', async (req, res) => {
   try {
     const categories = await Category.find({ userId: req.user._id }).sort({ name: 1 });
@@ -72,11 +62,7 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/transactions/bulk
- * @desc    Bulk insert multiple transactions
- * @access  Private
- */
+
 router.post('/bulk', async (req, res) => {
   try {
     const { transactions } = req.body;
@@ -136,13 +122,7 @@ router.post('/bulk', async (req, res) => {
 });
 
 
-// --- General and dynamic routes ---
 
-/**
- * @route   GET /api/transactions
- * @desc    Get user transactions with filtering, sorting, and pagination
- * @access  Private
- */
 router.get('/', validateTransactionQuery, validateDateRange, async (req, res) => {
   try {
     // FIX: Normalize the sortOrder to uppercase to pass validation.
@@ -161,11 +141,7 @@ router.get('/', validateTransactionQuery, validateDateRange, async (req, res) =>
   }
 });
 
-/**
- * @route   GET /api/transactions/:id
- * @desc    Get a single transaction by its ID
- * @access  Private
- */
+
 router.get('/:id', validateTransactionId, async (req, res) => {
   try {
     const transaction = await Transaction.findOne({
@@ -189,11 +165,7 @@ router.get('/:id', validateTransactionId, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/transactions
- * @desc    Create a new transaction
- * @access  Private
- */
+
 router.post('/', validateTransaction, async (req, res) => {
   try {
     const { amount, type, category, description, date, receiptUrl } = req.body;
@@ -231,11 +203,7 @@ router.post('/', validateTransaction, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/transactions/:id
- * @desc    Update an existing transaction
- * @access  Private
- */
+
 router.put('/:id', validateTransactionId, validateTransactionUpdate, async (req, res) => {
   try {
     const { amount, type, category, description, date, receiptUrl } = req.body;
@@ -268,11 +236,7 @@ router.put('/:id', validateTransactionId, validateTransactionUpdate, async (req,
   }
 });
 
-/**
- * @route   DELETE /api/transactions/:id
- * @desc    Delete a transaction
- * @access  Private
- */
+
 router.delete('/:id', validateTransactionId, async (req, res) => {
   try {
     const deletedTransaction = await Transaction.findOneAndDelete({

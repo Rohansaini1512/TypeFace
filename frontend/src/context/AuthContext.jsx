@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService.js';
 import api from '../services/api.js'; // Import api to set token on it
 
@@ -35,8 +35,6 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
-  // FIX: The logic for login, register, and updateProfile was completely rewritten
-  // to correctly handle the actual API response and propagate errors.
   const login = async (username, password) => {
     try {
       const data = await authService.login(username, password);
@@ -81,8 +79,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
   
-  // The changePassword and deleteAccount functions were mostly fine but are improved here
-  // for better consistency and error handling.
   const changePassword = async (currentPassword, newPassword) => {
     try {
       const data = await authService.changePassword(currentPassword, newPassword);

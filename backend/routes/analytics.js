@@ -7,11 +7,6 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
-/**
- * @route   GET /api/analytics/summary
- * @desc    Get financial summary for a user
- * @access  Private
- */
 router.get('/summary', validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -23,16 +18,10 @@ router.get('/summary', validateDateRange, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/analytics/categories
- * @desc    Get spending by category
- * @access  Private
- */
+
 router.get('/categories', validateAnalyticsQuery, validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    // This route is for the "Spending by Category" chart, so we explicitly
-    // query for 'expense' type transactions to ensure the chart gets the correct data.
     const categoryBreakdown = await Transaction.getCategoryAnalytics(req.user._id, { startDate, endDate, type: 'expense' });
 
     const result = categoryBreakdown.map(item => ({
@@ -40,7 +29,7 @@ router.get('/categories', validateAnalyticsQuery, validateDateRange, async (req,
       total: item.total,
       count: item.count,
       avgAmount: item.avgAmount,
-      type: 'expense' // FIX: Add the 'type' property so the frontend filter works correctly.
+      type: 'expense' 
     }));
 
     res.json({ categories: result });
@@ -50,11 +39,7 @@ router.get('/categories', validateAnalyticsQuery, validateDateRange, async (req,
   }
 });
 
-/**
- * @route   GET /api/analytics/timeline
- * @desc    Get income/expense data over a period for charting.
- * @access  Private
- */
+
 router.get('/timeline', validateAnalyticsQuery, validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate, groupBy } = req.query;
@@ -69,11 +54,7 @@ router.get('/timeline', validateAnalyticsQuery, validateDateRange, async (req, r
 });
 
 
-/**
- * @route   GET /api/analytics/trends
- * @desc    Get spending trends and insights
- * @access  Private
- */
+
 router.get('/trends', validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -133,11 +114,6 @@ router.get('/trends', validateDateRange, async (req, res) => {
 });
 
 
-/**
- * @route   GET /api/analytics/insights
- * @desc    Get financial insights and recommendations
- * @access  Private
- */
 router.get('/insights', validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -193,11 +169,7 @@ router.get('/insights', validateDateRange, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/analytics/export
- * @desc    Export analytics data as JSON or CSV
- * @access  Private
- */
+
 router.get('/export', validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate, format = 'json' } = req.query;

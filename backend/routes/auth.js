@@ -6,16 +6,10 @@ const { validateRegistration, validateLogin, validateProfileUpdate, validatePass
 
 const router = express.Router();
 
-/**
- * @route   POST /api/auth/register
- * @desc    Register a new user
- * @access  Public
- */
 router.post('/register', validateRegistration, async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    // Check if username already exists
     const existingUsername = await User.findOne({ username });
     if (existingUsername) {
       return res.status(400).json({
@@ -62,11 +56,7 @@ router.post('/register', validateRegistration, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/auth/login
- * @desc    Login user
- * @access  Public
- */
+
 router.post('/login', validateLogin, async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -111,15 +101,9 @@ router.post('/login', validateLogin, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/auth/me
- * @desc    Get current user profile
- * @access  Private
- */
+
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    // IMPROVEMENT: No need for a second database call. The `authenticateToken`
-    // middleware already attached the full user object to `req.user`.
     const user = req.user;
 
     res.json({
@@ -140,11 +124,6 @@ router.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/auth/profile
- * @desc    Update user profile
- * @access  Private
- */
 router.put('/profile', authenticateToken, validateProfileUpdate, async (req, res) => {
   try {
     const { username, email } = req.body;
@@ -207,11 +186,7 @@ router.put('/profile', authenticateToken, validateProfileUpdate, async (req, res
   }
 });
 
-/**
- * @route   PUT /api/auth/password
- * @desc    Change user password
- * @access  Private
- */
+
 router.put('/password', authenticateToken, validatePasswordChange, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -251,11 +226,7 @@ router.put('/password', authenticateToken, validatePasswordChange, async (req, r
   }
 });
 
-/**
- * @route   DELETE /api/auth/account
- * @desc    Delete user account
- * @access  Private
- */
+
 router.delete('/account', authenticateToken, async (req, res) => {
   try {
     const deletedUser = await User.findByIdAndDelete(req.user.id);

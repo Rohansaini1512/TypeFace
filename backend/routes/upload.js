@@ -66,13 +66,7 @@ const uploadStatement = multer({
 });
 
 
-// --- Route Handlers ---
 
-/**
- * @route   POST /api/upload/receipt
- * @desc    Upload and process an image receipt using Gemini AI.
- * @access  Private
- */
 router.post('/receipt', uploadReceipt.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded', message: 'Please select an image file.' });
@@ -80,8 +74,6 @@ router.post('/receipt', uploadReceipt.single('file'), async (req, res) => {
   const filePath = req.file.path;
 
   try {
-    // FIX: Add a check to ensure the AI service was loaded correctly.
-    // This helps debug issues like a missing API key in the .env file.
     if (typeof AIReceiptParserService.parseWithAI !== 'function') {
       console.error("CRITICAL ERROR: AIReceiptParserService.parseWithAI is not a function. This is likely caused by an error during the service's initialization (e.g., missing GEMINI_API_KEY in .env).");
       throw new Error("AI Receipt Parser service is not available. Please check the server logs for more details.");
@@ -128,11 +120,6 @@ router.post('/receipt', uploadReceipt.single('file'), async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/upload/statement
- * @desc    Upload and process a PDF statement using Gemini AI.
- * @access  Private
- */
 router.post('/statement', uploadStatement.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded', message: 'Please select a PDF file.' });
@@ -184,11 +171,7 @@ router.post('/statement', uploadStatement.single('file'), async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/upload/supported-formats
- * @desc    Get supported file formats for uploads.
- * @access  Private
- */
+
 router.get('/supported-formats', (req, res) => {
   res.json({
     receipt: {

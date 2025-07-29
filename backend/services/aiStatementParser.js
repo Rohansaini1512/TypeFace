@@ -5,12 +5,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 class AIStatementParserService {
-  /**
-   * Uses the Gemini AI to parse bank statement text and extract transactions.
-   * @param {string} text - The raw text extracted from the PDF.
-   * @param {string} userId - The user's ID to attach to the transactions.
-   * @returns {Promise<Array>} An array of structured transaction objects.
-   */
+ 
   static async parseWithAI(text, userId) {
     const prompt = `
       You are an expert financial data extraction tool. Your task is to analyze the following bank statement text and extract every transaction.

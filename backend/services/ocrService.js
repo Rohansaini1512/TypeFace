@@ -2,15 +2,9 @@ const Tesseract = require('tesseract.js');
 const fs = require('fs');
 const path = require('path');
 
-/**
- * OCR Service for extracting text from receipt images
- */
+
 class OCRService {
-  /**
-   * Extract text from image using Tesseract OCR
-   * @param {string} imagePath - Path to the image file
-   * @returns {Promise<string>} Extracted text
-   */
+ 
   static async extractText(imagePath) {
     try {
       console.log(`Starting OCR extraction for: ${imagePath}`);
@@ -205,11 +199,7 @@ class OCRService {
     return 'Other Expenses';
   }
 
-  /**
-   * Process receipt image and extract transaction data
-   * @param {string} imagePath - Path to the image file
-   * @returns {Promise<Object>} Extracted transaction data
-   */
+ 
   static async processReceipt(imagePath) {
     try {
       // Check if file exists
@@ -243,21 +233,14 @@ class OCRService {
     }
   }
 
-  /**
-   * Validate image file
-   * @param {string} filePath - Path to the file
-   * @returns {boolean} True if valid image file
-   */
+  
   static isValidImageFile(filePath) {
     const validExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'];
     const ext = path.extname(filePath).toLowerCase();
     return validExtensions.includes(ext);
   }
 
-  /**
-   * Get supported image formats
-   * @returns {Array} Array of supported file extensions
-   */
+ 
   static getSupportedFormats() {
     return ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'];
   }
