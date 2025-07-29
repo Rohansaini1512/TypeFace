@@ -2,56 +2,156 @@ const express = require('express');
 const Transaction = require('../models/transaction');
 const Category = require('../models/category');
 const { authenticateToken } = require('../middleware/auth');
-const { 
-  validateTransaction, 
-  validateTransactionUpdate, 
-  validateTransactionId, 
+const {
+  validateTransaction,
+  validateTransactionUpdate,
+  validateTransactionId,
   validateTransactionQuery,
-  validateDateRange 
+  validateDateRange
 } = require('../middleware/validation');
 
 const router = express.Router();
 
-// Apply authentication to all routes
+// Apply authentication to all routes in this file
 router.use(authenticateToken);
+
+// --- Specific routes must be defined BEFORE dynamic routes like '/:id' ---
+
+/**
+ * @route   GET /api/transactions/summary
+ * @desc    Get transaction summary for user within a date range
+ * @access  Private
+ */
+router.get('/summary', validateDateRange, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const filters = { startDate, endDate };
+    const summary = await Transaction.getSummary(req.user._id, filters);
+    res.json(summary);
+  } catch (error) {
+    console.error('Get summary error:', error);
+    res.status(500).json({
+      error: 'Failed to get summary',
+      message: 'An error occurred while retrieving the summary'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/transactions/categories
+ * @desc    Get all user categories with their transaction counts
+ * @access  Private
+ */
+router.get('/categories', async (req, res) => {
+  try {
+    const categories = await Category.find({ userId: req.user._id }).sort({ name: 1 });
+
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (category) => {
+        const count = await Transaction.countDocuments({
+          userId: req.user._id,
+          category: category.name,
+          type: category.type
+        });
+
+        return {
+          ...category.toObject(),
+          id: category._id,
+          transactionCount: count
+        };
+      })
+    );
+
+    res.json({ categories: categoriesWithCounts });
+  } catch (error) {
+    console.error('Get categories error:', error);
+    res.status(500).json({
+      error: 'Failed to get categories',
+      message: 'An error occurred while retrieving categories'
+    });
+  }
+});
+
+/**
+ * @route   POST /api/transactions/bulk
+ * @desc    Bulk insert multiple transactions
+ * @access  Private
+ */
+router.post('/bulk', async (req, res) => {
+  try {
+    const { transactions } = req.body;
+
+    if (!Array.isArray(transactions) || transactions.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid transactions data',
+        message: 'Transactions must be a non-empty array'
+      });
+    }
+
+    const validTransactions = [];
+    for (const transaction of transactions) {
+      const { amount, type, category, description, date } = transaction;
+      if (!amount || !type || !category || !date) continue; // Skip malformed
+
+      const categoryExists = await Category.findOne({
+        name: category,
+        type,
+        userId: req.user._id
+      });
+
+      if (!categoryExists) {
+        await Category.create({ name: category, type, userId: req.user._id });
+      }
+
+      validTransactions.push({
+        userId: req.user._id,
+        amount: parseFloat(amount),
+        type,
+        category,
+        description: description || '',
+        date: new Date(date),
+      });
+    }
+
+    if (validTransactions.length === 0) {
+      return res.status(400).json({
+        error: 'No valid transactions',
+        message: 'No valid transactions found in the provided data'
+      });
+    }
+
+    const result = await Transaction.insertMany(validTransactions);
+
+    res.status(201).json({
+      message: 'Bulk transactions created successfully',
+      insertedCount: result.length
+    });
+  } catch (error) {
+    console.error('Bulk insert error:', error);
+    res.status(500).json({
+      error: 'Failed to create bulk transactions',
+      message: 'An error occurred during bulk insertion'
+    });
+  }
+});
+
+
+// --- General and dynamic routes ---
 
 /**
  * @route   GET /api/transactions
- * @desc    Get user transactions with filters and pagination
+ * @desc    Get user transactions with filtering, sorting, and pagination
  * @access  Private
  */
 router.get('/', validateTransactionQuery, validateDateRange, async (req, res) => {
   try {
-    const {
-      type,
-      category,
-      startDate,
-      endDate,
-      search,
-      page = 1,
-      limit = 20,
-      sortBy = 'date',
-      sortOrder = 'desc'
-    } = req.query;
+    // FIX: Normalize the sortOrder to uppercase to pass validation.
+    if (req.query.sortOrder) {
+      req.query.sortOrder = req.query.sortOrder.toUpperCase();
+    }
 
-    const filters = {
-      type,
-      category,
-      startDate,
-      endDate,
-      search,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      sortBy,
-      sortOrder: sortOrder.toLowerCase()
-    };
-
-    const result = await Transaction.findByUser(req.user._id, filters);
-
-    res.json({
-      transactions: result.transactions,
-      pagination: result.pagination
-    });
+    const result = await Transaction.findByUser(req.user._id, req.query);
+    res.json(result);
   } catch (error) {
     console.error('Get transactions error:', error);
     res.status(500).json({
@@ -63,7 +163,7 @@ router.get('/', validateTransactionQuery, validateDateRange, async (req, res) =>
 
 /**
  * @route   GET /api/transactions/:id
- * @desc    Get specific transaction by ID
+ * @desc    Get a single transaction by its ID
  * @access  Private
  */
 router.get('/:id', validateTransactionId, async (req, res) => {
@@ -72,14 +172,13 @@ router.get('/:id', validateTransactionId, async (req, res) => {
       _id: req.params.id,
       userId: req.user._id
     });
-    
+
     if (!transaction) {
       return res.status(404).json({
         error: 'Transaction not found',
         message: 'The requested transaction was not found'
       });
     }
-
     res.json({ transaction });
   } catch (error) {
     console.error('Get transaction error:', error);
@@ -99,20 +198,13 @@ router.post('/', validateTransaction, async (req, res) => {
   try {
     const { amount, type, category, description, date, receiptUrl } = req.body;
 
-    // Check if category exists for this user
     const categoryExists = await Category.findOne({
       name: category,
       type,
       userId: req.user._id
     });
-    
     if (!categoryExists) {
-      // Create category if it doesn't exist
-      await Category.create({
-        name: category,
-        type,
-        userId: req.user._id
-      });
+      await Category.create({ name: category, type, userId: req.user._id });
     }
 
     const transaction = new Transaction({
@@ -126,7 +218,6 @@ router.post('/', validateTransaction, async (req, res) => {
     });
 
     await transaction.save();
-
     res.status(201).json({
       message: 'Transaction created successfully',
       transaction
@@ -142,52 +233,26 @@ router.post('/', validateTransaction, async (req, res) => {
 
 /**
  * @route   PUT /api/transactions/:id
- * @desc    Update a transaction
+ * @desc    Update an existing transaction
  * @access  Private
  */
 router.put('/:id', validateTransactionId, validateTransactionUpdate, async (req, res) => {
   try {
-    const updates = {};
     const { amount, type, category, description, date, receiptUrl } = req.body;
+    const updates = { amount, type, category, description, date, receiptUrl };
 
-    if (amount !== undefined) updates.amount = parseFloat(amount);
-    if (type !== undefined) updates.type = type;
-    if (category !== undefined) updates.category = category;
-    if (description !== undefined) updates.description = description;
-    if (date !== undefined) updates.date = new Date(date);
-    if (receiptUrl !== undefined) updates.receiptUrl = receiptUrl;
+    Object.keys(updates).forEach(key => updates[key] === undefined && delete updates[key]);
 
-    // Check if new category exists
-    if (category) {
-      const categoryExists = await Category.findOne({
-        name: category,
-        type: type || 'expense',
-        userId: req.user._id
-      });
-      
-      if (!categoryExists) {
-        await Category.create({
-          name: category,
-          type: type || 'expense',
-          userId: req.user._id
-        });
-      }
-    }
+    if (updates.date) updates.date = new Date(updates.date);
 
     const updatedTransaction = await Transaction.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        userId: req.user._id
-      },
-      updates,
+      { _id: req.params.id, userId: req.user._id },
+      { $set: updates },
       { new: true, runValidators: true }
     );
 
     if (!updatedTransaction) {
-      return res.status(404).json({
-        error: 'Transaction not found',
-        message: 'The requested transaction was not found'
-      });
+      return res.status(404).json({ error: 'Transaction not found' });
     }
 
     res.json({
@@ -214,17 +279,11 @@ router.delete('/:id', validateTransactionId, async (req, res) => {
       _id: req.params.id,
       userId: req.user._id
     });
-    
-    if (!deletedTransaction) {
-      return res.status(404).json({
-        error: 'Transaction not found',
-        message: 'The requested transaction was not found'
-      });
-    }
 
-    res.json({
-      message: 'Transaction deleted successfully'
-    });
+    if (!deletedTransaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    res.json({ message: 'Transaction deleted successfully' });
   } catch (error) {
     console.error('Delete transaction error:', error);
     res.status(500).json({
@@ -234,136 +293,4 @@ router.delete('/:id', validateTransactionId, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/transactions/summary
- * @desc    Get transaction summary for user
- * @access  Private
- */
-router.get('/summary', validateDateRange, async (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
-    
-    const filters = { startDate, endDate };
-    const summary = await Transaction.getSummary(req.user._id, filters);
-
-    res.json({ summary });
-  } catch (error) {
-    console.error('Get summary error:', error);
-    res.status(500).json({
-      error: 'Failed to get summary',
-      message: 'An error occurred while retrieving the summary'
-    });
-  }
-});
-
-/**
- * @route   GET /api/transactions/categories
- * @desc    Get categories with transaction counts
- * @access  Private
- */
-router.get('/categories', async (req, res) => {
-  try {
-    const categories = await Category.find({ userId: req.user._id }).sort({ name: 1 });
-    
-    // Get transaction counts for each category
-    const categoriesWithCounts = await Promise.all(
-      categories.map(async (category) => {
-        const count = await Transaction.countDocuments({
-          userId: req.user._id,
-          category: category.name,
-          type: category.type
-        });
-        
-        return {
-          ...category.toObject(),
-          transactionCount: count
-        };
-      })
-    );
-    
-    res.json({ categories: categoriesWithCounts });
-  } catch (error) {
-    console.error('Get categories error:', error);
-    res.status(500).json({
-      error: 'Failed to get categories',
-      message: 'An error occurred while retrieving categories'
-    });
-  }
-});
-
-/**
- * @route   POST /api/transactions/bulk
- * @desc    Bulk insert transactions
- * @access  Private
- */
-router.post('/bulk', async (req, res) => {
-  try {
-    const { transactions } = req.body;
-
-    if (!Array.isArray(transactions) || transactions.length === 0) {
-      return res.status(400).json({
-        error: 'Invalid transactions data',
-        message: 'Transactions must be a non-empty array'
-      });
-    }
-
-    // Validate and prepare transactions
-    const validTransactions = [];
-    for (const transaction of transactions) {
-      const { amount, type, category, description, date } = transaction;
-      
-      if (!amount || !type || !category || !date) {
-        continue; // Skip invalid transactions
-      }
-
-      // Check if category exists
-      const categoryExists = await Category.findOne({
-        name: category,
-        type,
-        userId: req.user._id
-      });
-      
-      if (!categoryExists) {
-        await Category.create({
-          name: category,
-          type,
-          userId: req.user._id
-        });
-      }
-
-      validTransactions.push({
-        userId: req.user._id,
-        amount: parseFloat(amount),
-        type,
-        category,
-        description: description || '',
-        date: new Date(date),
-        receiptUrl: null
-      });
-    }
-
-    if (validTransactions.length === 0) {
-      return res.status(400).json({
-        error: 'No valid transactions',
-        message: 'No valid transactions found in the provided data'
-      });
-    }
-
-    const result = await Transaction.insertMany(validTransactions);
-
-    res.status(201).json({
-      message: 'Bulk transactions created successfully',
-      inserted: result.length,
-      total: transactions.length,
-      valid: validTransactions.length
-    });
-  } catch (error) {
-    console.error('Bulk insert error:', error);
-    res.status(500).json({
-      error: 'Failed to create bulk transactions',
-      message: 'An error occurred while creating the transactions'
-    });
-  }
-});
-
-module.exports = router; 
+module.exports = router;

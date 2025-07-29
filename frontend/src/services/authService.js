@@ -31,7 +31,7 @@ export const authService = {
   },
 
   async changePassword(currentPassword, newPassword) {
-    // FIX: Removed confirmPassword as the backend doesn't use it.
+    // FIX: Removed `confirmPassword` as the backend doesn't use it.
     const response = await api.put('/auth/password', {
       currentPassword,
       newPassword,

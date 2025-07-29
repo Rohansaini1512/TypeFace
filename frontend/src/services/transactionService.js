@@ -8,7 +8,6 @@ export const transactionService = {
         params.append(key, value);
       }
     });
-    
     const response = await api.get(`/transactions?${params.toString()}`);
     return response.data;
   },
@@ -38,8 +37,9 @@ export const transactionService = {
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
     
+    // The backend now returns the summary object directly at the root level
     const response = await api.get(`/transactions/summary?${params.toString()}`);
-    return response.data.summary;
+    return response.data;
   },
 
   async getCategories() {
@@ -51,4 +51,4 @@ export const transactionService = {
     const response = await api.post('/transactions/bulk', { transactions });
     return response.data;
   }
-}; 
+};

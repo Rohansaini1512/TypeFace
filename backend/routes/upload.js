@@ -8,20 +8,16 @@ const Category = require('../models/category');
 const OCRService = require('../services/ocrService');
 const PDFService = require('../services/pdfService');
 const { authenticateToken } = require('../middleware/auth');
-const { validateFileUpload } = require('../middleware/validation');
 
 const router = express.Router();
 
-// Apply authentication to all routes
 router.use(authenticateToken);
 
-// Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
@@ -32,35 +28,30 @@ const storage = multer.diskStorage({
   }
 });
 
-const fileFilter = (req, file, cb) => {
-  const uploadType = req.body.type || req.query.type;
-  
-  if (uploadType === 'receipt') {
-    // Allow image files for receipts
+// Multer configuration for image receipts
+const uploadReceipt = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
     if (OCRService.isValidImageFile(file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only image files (JPG, PNG, BMP, TIFF) are allowed for receipts.'), false);
+      cb(new Error('Invalid file type. Only image files (JPG, PNG, BMP, TIFF) are allowed.'), false);
     }
-  } else if (uploadType === 'statement') {
-    // Allow PDF files for statements
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// Multer configuration for PDF statements
+const uploadStatement = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
     if (PDFService.isValidPDFFile(file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only PDF files are allowed for statements.'), false);
+      cb(new Error('Invalid file type. Only PDF files are allowed.'), false);
     }
-  } else {
-    cb(new Error('Invalid upload type. Must be either "receipt" or "statement".'), false);
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1
-  }
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
 /**
@@ -68,7 +59,7 @@ const upload = multer({
  * @desc    Upload and process receipt image
  * @access  Private
  */
-router.post('/receipt', upload.single('file'), async (req, res) => {
+router.post('/receipt', uploadReceipt.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -77,34 +68,26 @@ router.post('/receipt', upload.single('file'), async (req, res) => {
       });
     }
 
-    console.log(`Processing receipt: ${req.file.filename}`);
-
-    // Process the receipt using OCR
     const result = await OCRService.processReceipt(req.file.path);
 
     if (!result.success) {
-      // Clean up uploaded file
       fs.unlinkSync(req.file.path);
-      
       return res.status(400).json({
         error: 'Receipt processing failed',
         message: result.error,
-        supportedFormats: OCRService.getSupportedFormats()
       });
     }
 
     const { data, rawText } = result;
-
-    // Create transaction from extracted data
     let transaction = null;
+
     if (data.amount && data.category) {
-      // Check if category exists for this user
       const categoryExists = await Category.findOne({
         name: data.category,
         type: 'expense',
         userId: req.user._id
       });
-      
+
       if (!categoryExists) {
         await Category.create({
           name: data.category,
@@ -113,7 +96,7 @@ router.post('/receipt', upload.single('file'), async (req, res) => {
         });
       }
 
-      const transaction = new Transaction({
+      transaction = new Transaction({
         userId: req.user._id,
         amount: data.amount,
         type: 'expense',
@@ -131,22 +114,18 @@ router.post('/receipt', upload.single('file'), async (req, res) => {
       extractedData: data,
       transaction: transaction,
       confidence: data.confidence,
-      rawText: rawText.substring(0, 500) + '...', // First 500 chars for debugging
+      rawText: rawText.substring(0, 500) + '...',
       fileUrl: `/uploads/${req.file.filename}`
     });
 
   } catch (error) {
     console.error('Receipt upload error:', error);
-    
-    // Clean up uploaded file if it exists
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-
     res.status(500).json({
       error: 'Receipt upload failed',
       message: error.message || 'An error occurred while processing the receipt',
-      supportedFormats: OCRService.getSupportedFormats()
     });
   }
 });
@@ -156,7 +135,7 @@ router.post('/receipt', upload.single('file'), async (req, res) => {
  * @desc    Upload and process PDF statement
  * @access  Private
  */
-router.post('/statement', upload.single('file'), async (req, res) => {
+router.post('/statement', uploadStatement.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -165,28 +144,38 @@ router.post('/statement', upload.single('file'), async (req, res) => {
       });
     }
 
-    console.log(`Processing statement: ${req.file.filename}`);
-
-    // Process the PDF statement
     const result = await PDFService.processStatement(req.file.path, req.user._id);
 
     if (!result.success) {
-      // Clean up uploaded file
       fs.unlinkSync(req.file.path);
-      
       return res.status(400).json({
         error: 'Statement processing failed',
         message: result.error,
-        supportedFormats: PDFService.getSupportedFormats()
       });
     }
 
     const { transactions, count, rawText } = result;
 
-    // Insert transactions into database
+    // FIX: Transform the data to match the Mongoose schema (snake_case to camelCase)
+    const transactionsToInsert = transactions.map(tx => ({
+        userId: tx.user_id,
+        amount: tx.amount,
+        type: tx.type,
+        category: tx.category,
+        description: tx.description,
+        date: tx.date,
+        receiptUrl: tx.receipt_url,
+    }));
+
     let insertedCount = 0;
-    if (transactions.length > 0) {
-      const insertResult = await Transaction.insertMany(transactions);
+    if (transactionsToInsert.length > 0) {
+      const insertResult = await Transaction.insertMany(transactionsToInsert, { ordered: false })
+        .catch(err => {
+            console.error("Database InsertMany Error:", err.message);
+            // Return an object that looks like an error result from insertMany
+            return { length: 0 };
+        });
+      // The result of insertMany is an array of documents, so .length is the count
       insertedCount = insertResult.length;
     }
 
@@ -195,23 +184,19 @@ router.post('/statement', upload.single('file'), async (req, res) => {
       totalTransactions: count,
       insertedTransactions: insertedCount,
       skippedTransactions: count - insertedCount,
-      transactions: transactions.slice(0, 10), // Return first 10 for preview
+      transactions: transactions.slice(0, 10), // Show preview of original parsed data
       fileUrl: `/uploads/${req.file.filename}`,
       rawText: rawText
     });
 
   } catch (error) {
     console.error('Statement upload error:', error);
-    
-    // Clean up uploaded file if it exists
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-
     res.status(500).json({
       error: 'Statement upload failed',
       message: error.message || 'An error occurred while processing the statement',
-      supportedFormats: PDFService.getSupportedFormats()
     });
   }
 });
@@ -246,7 +231,6 @@ router.delete('/:filename', async (req, res) => {
     const filename = req.params.filename;
     const filePath = path.join(uploadsDir, filename);
 
-    // Check if file exists
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: 'File not found',
@@ -254,12 +238,8 @@ router.delete('/:filename', async (req, res) => {
       });
     }
 
-    // Delete file
     fs.unlinkSync(filePath);
-
-    res.json({
-      message: 'File deleted successfully'
-    });
+    res.json({ message: 'File deleted successfully' });
   } catch (error) {
     console.error('File deletion error:', error);
     res.status(500).json({
@@ -269,66 +249,17 @@ router.delete('/:filename', async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/upload/files
- * @desc    Get list of uploaded files for user
- * @access  Private
- */
-router.get('/files', async (req, res) => {
-  try {
-    const files = fs.readdirSync(uploadsDir);
-    const fileList = [];
-
-    for (const filename of files) {
-      const filePath = path.join(uploadsDir, filename);
-      const stats = fs.statSync(filePath);
-      
-      fileList.push({
-        filename,
-        size: stats.size,
-        uploadedAt: stats.birthtime,
-        url: `/uploads/${filename}`
-      });
-    }
-
-    // Sort by upload date (newest first)
-    fileList.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-
-    res.json({ files: fileList });
-  } catch (error) {
-    console.error('Get files error:', error);
-    res.status(500).json({
-      error: 'Failed to get files',
-      message: 'An error occurred while retrieving the file list'
-    });
-  }
-});
-
-// Error handling middleware for multer
+// Multer error handling middleware
 router.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        error: 'File too large',
-        message: 'File size exceeds the 10MB limit'
-      });
-    }
-    if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({
-        error: 'Too many files',
-        message: 'Only one file can be uploaded at a time'
-      });
+      return res.status(400).json({ error: 'File too large', message: 'File size exceeds the 10MB limit' });
     }
   }
-
   if (error.message) {
-    return res.status(400).json({
-      error: 'Upload error',
-      message: error.message
-    });
+    return res.status(400).json({ error: 'Upload error', message: error.message });
   }
-
   next(error);
 });
 
-module.exports = router; 
+module.exports = router;

@@ -118,8 +118,8 @@ router.post('/login', validateLogin, async (req, res) => {
  */
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    // IMPROVEMENT: No need for a second database call. The authenticateToken
-    // middleware already attached the full user object to req.user.
+    // IMPROVEMENT: No need for a second database call. The `authenticateToken`
+    // middleware already attached the full user object to `req.user`.
     const user = req.user;
 
     res.json({
@@ -279,4 +279,4 @@ router.delete('/account', authenticateToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = router; 

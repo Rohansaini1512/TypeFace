@@ -1,279 +1,131 @@
-import React, { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { 
-  Plus, 
-  Edit, 
-  Trash2
-} from 'lucide-react';
-import { transactionService } from '../services/transactionService.js';
+import React, { useState, useEffect, useCallback } from 'react';
+import { transactionService } from '../services/transactionService';
 import toast from 'react-hot-toast';
+import { Plus, Filter } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import Pagination from '../components/Pagination'; // 1. Import the new component
 
 const Transactions = () => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState(null);
-  const [filters, setFilters] = useState({});
-  const [pagination, setPagination] = useState({});
+  
+  // 2. Add state for pagination
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+    total: 0,
+  });
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm();
+  // Filters can be expanded upon later
+  const [filters, setFilters] = useState({}); 
 
-  useEffect(() => {
-    loadTransactions();
-  }, [filters]);
-
-  const loadTransactions = async () => {
+  // 3. Use useCallback to create a memoized function for loading data
+  const loadTransactions = useCallback(async (page = 1) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await transactionService.getTransactions(filters);
-      setTransactions(data.transactions);
-      setPagination(data.pagination);
+      const query = { ...filters, page, limit: pagination.limit };
+      const data = await transactionService.getTransactions(query);
+      
+      setTransactions(data.transactions || []);
+      setPagination(data.pagination || { page: 1, totalPages: 1 }); // Update pagination state
+      
     } catch (error) {
-      console.error('Error loading transactions:', error);
-      toast.error('Failed to load transactions');
+      toast.error("Failed to load transactions.");
+      console.error("Load transactions error:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, pagination.limit]); // Dependencies for useCallback
 
-  const onSubmit = async (data) => {
-    try {
-      if (editingTransaction) {
-        await transactionService.updateTransaction(editingTransaction.id, data);
-        toast.success('Transaction updated successfully');
-      } else {
-        await transactionService.createTransaction(data);
-        toast.success('Transaction created successfully');
-      }
-      reset();
-      setShowForm(false);
-      setEditingTransaction(null);
-      loadTransactions();
-    } catch (error) {
-      console.error('Error saving transaction:', error);
-      toast.error('Failed to save transaction');
-    }
-  };
+  // 4. Load transactions when the component mounts or the page changes
+  useEffect(() => {
+    loadTransactions(pagination.page);
+  }, [loadTransactions, pagination.page]);
 
-  const handleEdit = (transaction) => {
-    setEditingTransaction(transaction);
-    reset(transaction);
-    setShowForm(true);
-  };
-
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this transaction?')) {
-      try {
-        await transactionService.deleteTransaction(id);
-        toast.success('Transaction deleted successfully');
-        loadTransactions();
-      } catch (error) {
-        console.error('Error deleting transaction:', error);
-        toast.error('Failed to delete transaction');
-      }
+  const handlePageChange = (newPage) => {
+    if (newPage !== pagination.page) {
+      setPagination(prev => ({ ...prev, page: newPage }));
     }
   };
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-  };
-
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString();
+      currency: 'INR',
+    }).format(amount || 0);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="btn btn-primary"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Transaction
-        </button>
+      <div className="flex flex-wrap justify-between items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
+          <p className="text-gray-600">View and manage all your transactions.</p>
+        </div>
+        <div className="flex items-center space-x-3">
+          <button className="btn btn-outline">
+            <Filter size={18} />
+            <span>Filter</span>
+          </button>
+          <Link to="/transactions/new" className="btn btn-primary">
+            <Plus size={18} />
+            <span>Add Transaction</span>
+          </Link>
+        </div>
       </div>
 
-      {/* Transaction Form */}
-      {showForm && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">
-              {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
-            </h2>
-            <button
-              onClick={() => {
-                setShowForm(false);
-                setEditingTransaction(null);
-                reset();
-              }}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-          </div>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="form-label">Amount</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  {...register('amount', { required: 'Amount is required' })}
-                  className={`form-input ${errors.amount ? 'error' : ''}`}
-                />
-                {errors.amount && (
-                  <p className="form-error">{errors.amount.message}</p>
-                )}
-              </div>
-              <div>
-                <label className="form-label">Type</label>
-                <select
-                  {...register('type', { required: 'Type is required' })}
-                  className={`form-select ${errors.type ? 'error' : ''}`}
-                >
-                  <option value="">Select Type</option>
-                  <option value="income">Income</option>
-                  <option value="expense">Expense</option>
-                </select>
-                {errors.type && (
-                  <p className="form-error">{errors.type.message}</p>
-                )}
-              </div>
-              <div>
-                <label className="form-label">Category</label>
-                <input
-                  type="text"
-                  {...register('category', { required: 'Category is required' })}
-                  className={`form-input ${errors.category ? 'error' : ''}`}
-                />
-                {errors.category && (
-                  <p className="form-error">{errors.category.message}</p>
-                )}
-              </div>
-              <div>
-                <label className="form-label">Date</label>
-                <input
-                  type="date"
-                  {...register('date', { required: 'Date is required' })}
-                  className={`form-input ${errors.date ? 'error' : ''}`}
-                />
-                {errors.date && (
-                  <p className="form-error">{errors.date.message}</p>
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="form-label">Description</label>
-              <textarea
-                {...register('description')}
-                rows="3"
-                className="form-input"
-                placeholder="Optional description..."
-              />
-            </div>
-            <div className="flex space-x-3">
-              <button type="submit" className="btn btn-primary">
-                {editingTransaction ? 'Update Transaction' : 'Add Transaction'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingTransaction(null);
-                  reset();
-                }}
-                className="btn btn-outline"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Transactions List */}
       <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Transaction History</h2>
-        </div>
-        {loading ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="spinner"></div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left text-gray-500">
+            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+              <tr>
+                <th scope="col" className="px-6 py-3">Description</th>
+                <th scope="col" className="px-6 py-3">Category</th>
+                <th scope="col" className="px-6 py-3">Date</th>
+                <th scope="col" className="px-6 py-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
                 <tr>
-                  <th>Date</th>
-                  <th>Description</th>
-                  <th>Category</th>
-                  <th>Type</th>
-                  <th>Amount</th>
-                  <th>Actions</th>
+                  <td colSpan="4" className="text-center py-12">
+                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {transactions.map((transaction) => (
-                  <tr key={transaction._id}>
-                    <td>{formatDate(transaction.date)}</td>
-                    <td>{transaction.description || '-'}</td>
-                    <td>{transaction.category}</td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          transaction.type === 'income'
-                            ? 'badge-success'
-                            : 'badge-danger'
-                        }`}
-                      >
-                        {transaction.type}
-                      </span>
-                    </td>
-                    <td className="font-medium">
-                      {formatCurrency(transaction.amount)}
-                    </td>
-                    <td>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleEdit(transaction)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(transaction._id)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+              ) : transactions.length > 0 ? (
+                transactions.map((tx) => (
+                  <tr key={tx.id} className="bg-white border-b hover:bg-gray-50">
+                    <td className="px-6 py-4 font-medium text-gray-900">{tx.description}</td>
+                    <td className="px-6 py-4">{tx.category}</td>
+                    <td className="px-6 py-4">{new Date(tx.date).toLocaleDateString()}</td>
+                    <td className={`px-6 py-4 text-right font-medium ${tx.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                      {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {transactions.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                No transactions found. Add your first transaction to get started.
-              </div>
-            )}
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="4" className="text-center py-12 text-gray-500">
+                    <p>No transactions found.</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* 5. Render the pagination component */}
+        {!loading && pagination.total > 0 && (
+          <Pagination
+            currentPage={pagination.page}
+            totalPages={pagination.totalPages}
+            onPageChange={handlePageChange}
+          />
         )}
       </div>
     </div>
   );
 };
 
-export default Transactions; 
+export default Transactions;

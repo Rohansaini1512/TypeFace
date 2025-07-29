@@ -9,169 +9,194 @@ const transactionSchema = new mongoose.Schema({
   },
   amount: {
     type: Number,
-    required: true,
-    min: 0
+    required: [true, 'Amount is required'],
+    min: [0, 'Amount must be a positive number']
   },
   type: {
     type: String,
     enum: ['income', 'expense'],
-    required: true,
+    required: [true, 'Transaction type is required'],
     index: true
   },
   category: {
     type: String,
-    required: true,
+    required: [true, 'Category is required'],
+    trim: true,
     index: true
   },
   description: {
     type: String,
-    required: true,
-    trim: true
+    trim: true,
+    default: ''
   },
   date: {
     type: Date,
-    required: true,
+    required: [true, 'Date is required'],
     default: Date.now,
     index: true
   },
   receiptUrl: {
-    type: String
-  },
-  tags: [{
     type: String,
     trim: true
-  }]
+  },
 }, {
-  timestamps: true
-});
-
-transactionSchema.virtual('formattedAmount').get(function() {
-  return this.type === 'income' ? this.amount : -this.amount;
-});
-
-transactionSchema.statics.findByUser = async function(userId, page = 1, limit = 10, search = '') {
-  const skip = (page - 1) * limit;
-  const query = { userId };
-  
-  if (search) {
-    query.$or = [
-      { description: { $regex: search, $options: 'i' } },
-      { category: { $regex: search, $options: 'i' } }
-    ];
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform(doc, ret) {
+      ret.id = ret._id;
+      delete ret._id;
+      delete ret.__v;
+    }
+  },
+  toObject: {
+    virtuals: true
   }
-  
-  const transactions = await this.find(query)
-    .sort({ date: -1 })
-    .skip(skip)
-    .limit(limit);
-    
+});
+
+transactionSchema.virtual('id').get(function() {
+  return this._id.toHexString();
+});
+
+transactionSchema.statics.findByUser = async function(userId, filters = {}) {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    type,
+    category,
+    startDate,
+    endDate,
+    sortBy = 'date',
+    sortOrder = 'desc'
+  } = filters;
+
+  const query = { userId };
+
+  if (type) query.type = type;
+  if (category) query.category = category;
+  if (startDate || endDate) {
+    query.date = {};
+    if (startDate) query.date.$gte = new Date(startDate);
+    if (endDate) {
+       const end = new Date(endDate);
+       end.setHours(23, 59, 59, 999);
+       query.date.$lte = end;
+    }
+  }
+  if (search) {
+    const searchRegex = { $regex: search, $options: 'i' };
+    query.$or = [{ description: searchRegex }, { category: searchRegex }];
+  }
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+
+  const transactions = await this.find(query).sort(sort).skip(skip).limit(parseInt(limit));
   const total = await this.countDocuments(query);
 
-    return {
-      transactions,
-        total,
-    page,
-    totalPages: Math.ceil(total / limit)
+  return {
+    transactions,
+    pagination: {
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / parseInt(limit))
+    }
   };
 };
 
-transactionSchema.statics.getAnalytics = async function(userId, startDate, endDate) {
-  const matchStage = {
-    userId: new mongoose.Types.ObjectId(userId),
-    date: {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
+transactionSchema.statics.getSummary = async function(userId, filters = {}) {
+  const { startDate, endDate } = filters;
+
+  const matchStage = { userId: new mongoose.Types.ObjectId(userId) };
+  if (startDate || endDate) {
+    matchStage.date = {};
+    if (startDate) matchStage.date.$gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      matchStage.date.$lte = end;
     }
-  };
+  }
 
   const pipeline = [
     { $match: matchStage },
     {
-      $group: {
-        _id: '$type',
-        total: { $sum: '$amount' },
-        count: { $sum: 1 }
-      }
-    }
-  ];
-
-  const results = await this.aggregate(pipeline);
-  
-  const analytics = {
-    income: { total: 0, count: 0 },
-    expense: { total: 0, count: 0 }
-  };
-
-  results.forEach(result => {
-    analytics[result._id] = {
-      total: result.total,
-      count: result.count
-      };
-    });
-
-  return analytics;
-};
-
-transactionSchema.statics.getTimeline = async function(userId, startDate, endDate) {
-  const matchStage = {
-    userId: new mongoose.Types.ObjectId(userId),
-    date: {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
-    }
-  };
-
-  const pipeline = [
-    { $match: matchStage },
-    {
-      $group: {
-        _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-          type: '$type'
-        },
-        total: { $sum: '$amount' }
+      $facet: {
+        incomeData: [
+          { $match: { type: 'income' } },
+          { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ],
+        expenseData: [
+          { $match: { type: 'expense' } },
+          { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 }, average: { $avg: '$amount' } } }
+        ]
       }
     },
-    { $sort: { '_id.date': 1 } }
-  ];
-
-  return await this.aggregate(pipeline);
-};
-
-transactionSchema.statics.getSummary = async function(userId) {
-  const pipeline = [
-    { $match: { userId: new mongoose.Types.ObjectId(userId) } },
     {
-      $group: {
-        _id: '$type',
-        total: { $sum: '$amount' },
-        count: { $sum: 1 }
+      $project: {
+        income: { $arrayElemAt: ['$incomeData', 0] },
+        expense: { $arrayElemAt: ['$expenseData', 0] }
+      }
+    },
+    {
+      $project: {
+        income: {
+          total: { $ifNull: ['$income.total', 0] },
+          count: { $ifNull: ['$income.count', 0] }
+        },
+        expense: {
+          total: { $ifNull: ['$expense.total', 0] },
+          count: { $ifNull: ['$expense.count', 0] },
+          average: { $ifNull: ['$expense.average', 0] }
+        },
+        net: { $subtract: [{ $ifNull: ['$income.total', 0] }, { $ifNull: ['$expense.total', 0] }] }
       }
     }
   ];
 
   const results = await this.aggregate(pipeline);
-  
-  const summary = {
-    totalIncome: 0,
-    totalExpenses: 0,
-    totalTransactions: 0,
-    balance: 0
+  return results[0] || {
+    income: { total: 0, count: 0 },
+    expense: { total: 0, count: 0, average: 0 },
+    net: 0
   };
-
-  results.forEach(result => {
-    if (result._id === 'income') {
-      summary.totalIncome = result.total;
-      summary.totalTransactions += result.count;
-    } else if (result._id === 'expense') {
-      summary.totalExpenses = result.total;
-      summary.totalTransactions += result.count;
-    }
-  });
-
-  summary.balance = summary.totalIncome - summary.totalExpenses;
-  
-  return summary;
 };
 
-module.exports = mongoose.model('Transaction', transactionSchema); 
+// FIX: Added the missing function for category analytics
+transactionSchema.statics.getCategoryAnalytics = async function(userId, filters = {}) {
+  const { startDate, endDate, type } = filters;
+
+  const matchStage = { userId: new mongoose.Types.ObjectId(userId) };
+  if (startDate || endDate) {
+    matchStage.date = {};
+    if (startDate) matchStage.date.$gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      matchStage.date.$lte = end;
+    }
+  }
+  if (type) {
+    matchStage.type = type;
+  }
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $group: {
+        _id: '$category',
+        total: { $sum: '$amount' },
+        count: { $sum: 1 },
+        avgAmount: { $avg: '$amount' }
+      }
+    },
+    { $sort: { total: -1 } }
+  ];
+
+  return this.aggregate(pipeline);
+};
+
+
+module.exports = mongoose.model('Transaction', transactionSchema);
