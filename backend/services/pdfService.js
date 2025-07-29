@@ -2,26 +2,35 @@ const pdfParse = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
 
-/**
- * PDF Service for parsing transaction statements and bank statements
- */
+// This is a required helper function for the new pdf-parse options
+// It tries to reconstruct the layout more accurately.
+function render_page(pageData) {
+    let render_options = {
+        normalizeWhitespace: false,
+        disableCombineTextItems: false
+    }
+    return pageData.getTextContent(render_options)
+        .then(function(textContent) {
+            let lastY, text = '';
+            for (let item of textContent.items) {
+                if (lastY == item.transform[5] || !lastY){
+                    text += item.str;
+                }  
+                else{
+                    text += '\n' + item.str;
+                }    
+                lastY = item.transform[5];
+            }
+            return text;
+        });
+}
+
+
 class PDFService {
-  /**
-   * Extract text from PDF file
-   * @param {string} pdfPath - Path to the PDF file
-   * @returns {Promise<string>} Extracted text
-   */
   static async extractText(pdfPath) {
     try {
-      console.log(`Starting PDF text extraction for: ${pdfPath}`);
-      
-      // Read PDF file
       const dataBuffer = fs.readFileSync(pdfPath);
-      
-      // Parse PDF
-      const data = await pdfParse(dataBuffer);
-      
-      console.log('PDF text extraction completed successfully');
+      const data = await pdfParse(dataBuffer, { pageRender: render_page });
       return data.text;
     } catch (error) {
       console.error('PDF text extraction failed:', error);
@@ -29,374 +38,143 @@ class PDFService {
     }
   }
 
-  /**
-   * Parse transaction statement text to extract transaction data
-   * @param {string} text - Raw PDF text
-   * @param {number} userId - User ID for the transactions
-   * @returns {Promise<Array>} Array of parsed transactions
-   */
   static async parseTransactionStatement(text, userId) {
-    try {
-      console.log('Parsing transaction statement...');
-      
-      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-      const transactions = [];
+    const transactions = [];
+    const lines = text.split('\n').map(line => line.trim());
 
-      // Common patterns for transaction statements
-      const patterns = [
-        // Pattern: Date Description Amount
-        /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(.+?)\s+([\-\+]?\$?\d+\.?\d*)/i,
-        // Pattern: Date Amount Description
-        /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+([\-\+]?\$?\d+\.?\d*)\s+(.+)/i,
-        // Pattern: Description Date Amount
-        /(.+?)\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+([\-\+]?\$?\d+\.?\d*)/i,
-        // Pattern with different date formats
-        /(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})\s+(.+?)\s+([\-\+]?\$?\d+\.?\d*)/i
-      ];
+    const startIndex = lines.findIndex(line => line.startsWith('BALANCE B/F'));
+    if (startIndex === -1) {
+      console.error("Could not find the start of transaction data ('BALANCE B/F').");
+      return [];
+    }
 
-      for (const line of lines) {
-        // Skip header lines and summary lines
-        if (this.isHeaderLine(line) || this.isSummaryLine(line)) {
-          continue;
-        }
+    const transactionLines = lines.slice(startIndex);
+    
+    const anchorRegex = /(\d{2}\/\d{2}\/\d{4})\s+(?:\d{2}\/\d{2}\/\d{4})\s+(.*?)\s+([\d,.]*)\s+([\d,.]*)\s+([\d,.]+\s*CR)/;
 
-        let transaction = null;
+    let descriptionBuffer = [];
 
-        // Try each pattern
-        for (const pattern of patterns) {
-          const match = line.match(pattern);
-          if (match) {
-            transaction = this.parseTransactionFromMatch(match, userId);
-            if (transaction) {
-              break;
+    for (const line of transactionLines) {
+        const match = line.match(anchorRegex);
+
+        if (match) {
+            if (transactions.length > 0) {
+                const lastTx = transactions[transactions.length - 1];
+                lastTx.description = (lastTx.description + ' ' + descriptionBuffer.join(' ')).replace(/\s+/g, ' ').trim();
+                lastTx.category = this.categorizeTransaction(lastTx.description, lastTx.type === 'expense');
             }
-          }
-        }
+            descriptionBuffer = [];
 
-        // If no pattern matched, try to extract manually
-        if (!transaction) {
-          transaction = this.parseTransactionManually(line, userId);
-        }
+            const [, dateStr, descPart, debitStr, creditStr] = match;
+            
+            const date = this.parseDate(dateStr);
+            if (!date) continue;
 
-        if (transaction) {
-          transactions.push(transaction);
-        }
-      }
+            const debit = this.parseAmount(debitStr);
+            const credit = this.parseAmount(creditStr);
+            
+            if (debit > 0 || credit > 0) {
+                const isExpense = debit > 0;
+                const amount = isExpense ? debit : credit;
 
-      console.log(`Parsed ${transactions.length} transactions from statement`);
-      return transactions;
-    } catch (error) {
-      console.error('Transaction statement parsing failed:', error);
-      throw new Error(`Failed to parse transaction statement: ${error.message}`);
+                transactions.push({
+                    user_id: userId,
+                    amount: amount,
+                    type: isExpense ? 'expense' : 'income',
+                    category: 'Uncategorized',
+                    description: descPart,
+                    date: date,
+                    receipt_url: null,
+                });
+            }
+        } else if (transactions.length > 0) {
+            if (line.length > 1 && !/^\d{2}\/\d{2}\/\d{4}/.test(line) && !/Page No:/.test(line)) {
+               descriptionBuffer.push(line);
+            }
+        }
     }
+    
+    if (transactions.length > 0 && descriptionBuffer.length > 0) {
+        const lastTx = transactions[transactions.length - 1];
+        lastTx.description = (lastTx.description + ' ' + descriptionBuffer.join(' ')).replace(/\s+/g, ' ').trim();
+        lastTx.category = this.categorizeTransaction(lastTx.description, lastTx.type === 'expense');
+    }
+
+    console.log(`State-machine parser successfully extracted ${transactions.length} transactions.`);
+    return transactions;
   }
 
-  /**
-   * Parse transaction from regex match
-   * @param {Array} match - Regex match result
-   * @param {number} userId - User ID
-   * @returns {Object|null} Parsed transaction or null
-   */
-  static parseTransactionFromMatch(match, userId) {
-    try {
-      let date, description, amount;
-
-      // Determine which group is which based on the pattern
-      if (match[1].match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
-        // First group is date
-        date = this.parseDate(match[1]);
-        if (match[2].match(/[\-\+]?\$?\d+\.?\d*/)) {
-          // Second group is amount
-          amount = this.parseAmount(match[2]);
-          description = match[3];
-        } else {
-          // Second group is description
-          description = match[2];
-          amount = this.parseAmount(match[3]);
-        }
-      } else {
-        // First group is description
-        description = match[1];
-        date = this.parseDate(match[2]);
-        amount = this.parseAmount(match[3]);
-      }
-
-      if (!date || !amount || !description) {
-        return null;
-      }
-
-      return {
-        user_id: userId,
-        amount: Math.abs(amount),
-        type: amount < 0 ? 'expense' : 'income',
-        category: this.categorizeTransaction(description),
-        description: description.trim(),
-        date: date,
-        receipt_url: null
-      };
-    } catch (error) {
-      console.error('Error parsing transaction from match:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Parse transaction manually from line
-   * @param {string} line - Line of text
-   * @param {number} userId - User ID
-   * @returns {Object|null} Parsed transaction or null
-   */
-  static parseTransactionManually(line, userId) {
-    try {
-      // Look for amount patterns
-      const amountMatch = line.match(/[\-\+]?\$?\d+\.?\d*/);
-      if (!amountMatch) {
-        return null;
-      }
-
-      const amount = this.parseAmount(amountMatch[0]);
-      if (!amount) {
-        return null;
-      }
-
-      // Look for date patterns
-      const dateMatch = line.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/);
-      const date = dateMatch ? this.parseDate(dateMatch[0]) : new Date().toISOString().split('T')[0];
-
-      // Extract description (everything except amount and date)
-      let description = line
-        .replace(amountMatch[0], '')
-        .replace(dateMatch ? dateMatch[0] : '', '')
-        .replace(/[^\w\s]/g, ' ')
-        .trim();
-
-      if (!description) {
-        description = 'Imported transaction';
-      }
-
-      return {
-        user_id: userId,
-        amount: Math.abs(amount),
-        type: amount < 0 ? 'expense' : 'income',
-        category: this.categorizeTransaction(description),
-        description: description,
-        date: date,
-        receipt_url: null
-      };
-    } catch (error) {
-      console.error('Error parsing transaction manually:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Parse date string to ISO format
-   * @param {string} dateStr - Date string
-   * @returns {string} ISO date string (YYYY-MM-DD)
-   */
   static parseDate(dateStr) {
+    if (!dateStr) return null;
     try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) {
-        return null;
-      }
+      const parts = dateStr.split(/\s+/)[0].split('/');
+      if (parts.length !== 3) return null;
+      const [day, month, year] = parts;
+      const date = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+      if (isNaN(date.getTime())) return null;
       return date.toISOString().split('T')[0];
     } catch (error) {
       return null;
     }
   }
 
-  /**
-   * Parse amount string to number
-   * @param {string} amountStr - Amount string
-   * @returns {number|null} Parsed amount or null
-   */
   static parseAmount(amountStr) {
+    if (!amountStr || amountStr.trim() === '') return 0;
     try {
-      // Remove currency symbols and commas
-      const cleanAmount = amountStr.replace(/[$,]/g, '');
+      const cleanAmount = amountStr.replace(/[$,CR]/g, '').trim();
       const amount = parseFloat(cleanAmount);
-      
-      if (isNaN(amount)) {
-        return null;
-      }
-      
-      return amount;
+      return isNaN(amount) ? 0 : amount;
     } catch (error) {
-      return null;
+      return 0;
     }
   }
 
-  /**
-   * Categorize transaction based on description
-   * @param {string} description - Transaction description
-   * @returns {string} Category name
-   */
-  static categorizeTransaction(description) {
+  static categorizeTransaction(description, isExpense) {
     const lowerDesc = description.toLowerCase();
-
-    // Income categories
-    if (lowerDesc.includes('salary') || lowerDesc.includes('payroll') || 
-        lowerDesc.includes('deposit') || lowerDesc.includes('credit')) {
-      return 'Salary';
-    }
-
-    if (lowerDesc.includes('freelance') || lowerDesc.includes('consulting') ||
-        lowerDesc.includes('contract')) {
-      return 'Freelance';
-    }
-
-    if (lowerDesc.includes('investment') || lowerDesc.includes('dividend') ||
-        lowerDesc.includes('interest')) {
-      return 'Investment';
-    }
-
-    // Expense categories
-    if (lowerDesc.includes('restaurant') || lowerDesc.includes('cafe') ||
-        lowerDesc.includes('food') || lowerDesc.includes('meal') ||
-        lowerDesc.includes('grocery') || lowerDesc.includes('supermarket')) {
-      return 'Food & Dining';
-    }
-
-    if (lowerDesc.includes('gas') || lowerDesc.includes('fuel') ||
-        lowerDesc.includes('transport') || lowerDesc.includes('uber') ||
-        lowerDesc.includes('lyft') || lowerDesc.includes('taxi')) {
-      return 'Transportation';
-    }
-
-    if (lowerDesc.includes('shopping') || lowerDesc.includes('store') ||
-        lowerDesc.includes('amazon') || lowerDesc.includes('walmart') ||
-        lowerDesc.includes('target')) {
-      return 'Shopping';
-    }
-
-    if (lowerDesc.includes('movie') || lowerDesc.includes('theater') ||
-        lowerDesc.includes('entertainment') || lowerDesc.includes('netflix') ||
-        lowerDesc.includes('spotify')) {
-      return 'Entertainment';
-    }
-
-    if (lowerDesc.includes('electric') || lowerDesc.includes('water') ||
-        lowerDesc.includes('utility') || lowerDesc.includes('internet') ||
-        lowerDesc.includes('phone') || lowerDesc.includes('bill')) {
-      return 'Bills & Utilities';
-    }
-
-    if (lowerDesc.includes('medical') || lowerDesc.includes('health') ||
-        lowerDesc.includes('pharmacy') || lowerDesc.includes('doctor')) {
-      return 'Healthcare';
-    }
-
-    if (lowerDesc.includes('education') || lowerDesc.includes('school') ||
-        lowerDesc.includes('course') || lowerDesc.includes('training')) {
-      return 'Education';
-    }
-
-    if (lowerDesc.includes('travel') || lowerDesc.includes('hotel') ||
-        lowerDesc.includes('flight') || lowerDesc.includes('airline')) {
-      return 'Travel';
-    }
-
-    // Default categories
-    if (lowerDesc.includes('withdrawal') || lowerDesc.includes('debit')) {
-      return 'Other Expenses';
-    }
-
-    if (lowerDesc.includes('deposit') || lowerDesc.includes('credit')) {
-      return 'Other Income';
-    }
-
-    return 'Other Expenses';
+    if (/salary|payroll/i.test(lowerDesc)) return 'Salary';
+    if (/interest|credit\s*rfnd/i.test(lowerDesc)) return 'Investment';
+    if (/restaurant|cafe|food|dhaba|milk/i.test(lowerDesc)) return 'Food & Dining';
+    if (/grocery|supermarket/i.test(lowerDesc)) return 'Food & Dining';
+    if (/gas|fuel|transport/i.test(lowerDesc)) return 'Transportation';
+    if (/amazon|walmart|shopping|paytm|upi/i.test(lowerDesc)) return 'Shopping';
+    if (/netflix|spotify|movie/i.test(lowerDesc)) return 'Entertainment';
+    if (/utility|electric|internet/i.test(lowerDesc)) return 'Bills & Utilities';
+    if (/pharmacy|medical/i.test(lowerDesc)) return 'Healthcare';
+    if (/flight|hotel/i.test(lowerDesc)) return 'Travel';
+    return isExpense ? 'Other Expenses' : 'Other Income';
   }
 
-  /**
-   * Check if line is a header line
-   * @param {string} line - Line to check
-   * @returns {boolean} True if header line
-   */
-  static isHeaderLine(line) {
-    const headerKeywords = [
-      'date', 'description', 'amount', 'balance', 'transaction',
-      'account', 'statement', 'summary', 'total', 'debit', 'credit'
-    ];
-    
-    const lowerLine = line.toLowerCase();
-    return headerKeywords.some(keyword => lowerLine.includes(keyword));
-  }
-
-  /**
-   * Check if line is a summary line
-   * @param {string} line - Line to check
-   * @returns {boolean} True if summary line
-   */
-  static isSummaryLine(line) {
-    const summaryKeywords = [
-      'total', 'balance', 'summary', 'ending balance', 'beginning balance',
-      'previous balance', 'new balance', 'available balance'
-    ];
-    
-    const lowerLine = line.toLowerCase();
-    return summaryKeywords.some(keyword => lowerLine.includes(keyword));
-  }
-
-  /**
-   * Process PDF statement and extract transactions
-   * @param {string} pdfPath - Path to the PDF file
-   * @param {number} userId - User ID for the transactions
-   * @returns {Promise<Object>} Processing result
-   */
   static async processStatement(pdfPath, userId) {
     try {
-      // Check if file exists
-      if (!fs.existsSync(pdfPath)) {
-        throw new Error('PDF file not found');
-      }
-
-      // Extract text from PDF
-      const text = await this.extractText(pdfPath);
+      if (!fs.existsSync(pdfPath)) throw new Error('PDF file not found');
       
-      if (!text || text.trim().length === 0) {
-        throw new Error('No text could be extracted from the PDF');
-      }
-
-      // Parse the extracted text
-      const transactions = await this.parseTransactionStatement(text, userId);
-
+      // FIX: Call the static method on the class itself (PDFService) instead of `this`
+      const text = await PDFService.extractText(pdfPath);
+      
+      if (!text || text.trim().length === 0) throw new Error('No text could be extracted from the PDF');
+      
+      // FIX: Call the static method on the class itself (PDFService) instead of `this`
+      const transactions = await PDFService.parseTransactionStatement(text, userId);
+      
       return {
         success: true,
         transactions: transactions,
         count: transactions.length,
-        rawText: text.substring(0, 1000) + '...' // First 1000 chars for debugging
+        rawText: text.substring(0, 1500) + '...'
       };
     } catch (error) {
       console.error('PDF statement processing failed:', error);
-      return {
-        success: false,
-        error: error.message,
-        transactions: [],
-        count: 0,
-        rawText: null
-      };
+      return { success: false, error: error.message, transactions: [], count: 0, rawText: null };
     }
   }
 
-  /**
-   * Validate PDF file
-   * @param {string} filePath - Path to the file
-   * @returns {boolean} True if valid PDF file
-   */
   static isValidPDFFile(filePath) {
-    const ext = path.extname(filePath).toLowerCase();
-    return ext === '.pdf';
+    return path.extname(filePath).toLowerCase() === '.pdf';
   }
 
-  /**
-   * Get supported file formats
-   * @returns {Array} Array of supported file extensions
-   */
   static getSupportedFormats() {
     return ['.pdf'];
   }
 }
 
-module.exports = PDFService; 
+module.exports = PDFService;
