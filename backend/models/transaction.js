@@ -90,7 +90,7 @@ transactionSchema.statics.findByUser = async function(userId, filters = {}) {
   }
 
   const skip = (parseInt(page) - 1) * parseInt(limit);
-  const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+  const sort = { [sortBy]: sortOrder.toLowerCase() === 'asc' ? 1 : -1 };
 
   const transactions = await this.find(query).sort(sort).skip(skip).limit(parseInt(limit));
   const total = await this.countDocuments(query);
@@ -164,7 +164,6 @@ transactionSchema.statics.getSummary = async function(userId, filters = {}) {
   };
 };
 
-// FIX: Added the missing function for category analytics
 transactionSchema.statics.getCategoryAnalytics = async function(userId, filters = {}) {
   const { startDate, endDate, type } = filters;
 
@@ -193,6 +192,54 @@ transactionSchema.statics.getCategoryAnalytics = async function(userId, filters 
       }
     },
     { $sort: { total: -1 } }
+  ];
+
+  return this.aggregate(pipeline);
+};
+
+/**
+ * NEW: Static method to get income/expense totals grouped by date.
+ * This is used to power the bar chart on the Analytics page.
+ */
+transactionSchema.statics.getTimeline = async function(userId, filters = {}) {
+  const { startDate, endDate, groupBy = 'day' } = filters;
+
+  const matchStage = { userId: new mongoose.Types.ObjectId(userId) };
+  if (startDate || endDate) {
+    matchStage.date = {};
+    if (startDate) matchStage.date.$gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Include the entire end day
+      matchStage.date.$lte = end;
+    }
+  }
+
+  let groupFormat;
+  switch (groupBy) {
+    case 'week':
+      groupFormat = '%Y-%U'; // Group by Year-Week Number
+      break;
+    case 'month':
+      groupFormat = '%Y-%m'; // Group by Year-Month
+      break;
+    default: // 'day'
+      groupFormat = '%Y-%m-%d'; // Group by Year-Month-Day
+      break;
+  }
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $group: {
+        _id: {
+          date: { $dateToString: { format: groupFormat, date: '$date' } },
+          type: '$type'
+        },
+        total: { $sum: '$amount' }
+      }
+    },
+    { $sort: { '_id.date': 1 } }
   ];
 
   return this.aggregate(pipeline);

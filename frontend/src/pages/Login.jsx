@@ -128,7 +128,6 @@ const Login = () => {
                 </>
               ) : (
                 <>
-                  <LogIn size={18} />
                   Sign in
                 </>
               )}

@@ -195,7 +195,6 @@ const Register = () => {
                 </>
               ) : (
                 <>
-                  <UserPlus size={18} />
                   Create account
                 </>
               )}

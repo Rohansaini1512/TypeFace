@@ -15,8 +15,8 @@ router.use(authenticateToken);
 router.get('/summary', validateDateRange, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const summary = await Transaction.getSummary(req.user._id, { startDate, endDate });
-    res.json(summary);
+    const summaryData = await Transaction.getSummary(req.user._id, { startDate, endDate });
+    res.json({ summary: summaryData });
   } catch (error) {
     console.error('Get analytics summary error:', error);
     res.status(500).json({ error: 'Failed to get summary' });
@@ -30,22 +30,41 @@ router.get('/summary', validateDateRange, async (req, res) => {
  */
 router.get('/categories', validateAnalyticsQuery, validateDateRange, async (req, res) => {
   try {
-    const { startDate, endDate, type } = req.query;
-    
-    // FIX: Use the new getCategoryAnalytics function
-    const categoryBreakdown = await Transaction.getCategoryAnalytics(req.user._id, { startDate, endDate, type });
+    const { startDate, endDate } = req.query;
+    // This route is for the "Spending by Category" chart, so we explicitly
+    // query for 'expense' type transactions to ensure the chart gets the correct data.
+    const categoryBreakdown = await Transaction.getCategoryAnalytics(req.user._id, { startDate, endDate, type: 'expense' });
 
     const result = categoryBreakdown.map(item => ({
       category: item._id,
       total: item.total,
       count: item.count,
-      avgAmount: item.avgAmount
+      avgAmount: item.avgAmount,
+      type: 'expense' // FIX: Add the 'type' property so the frontend filter works correctly.
     }));
 
     res.json({ categories: result });
   } catch (error) {
     console.error('Get category analytics error:', error);
     res.status(500).json({ error: 'Failed to get category analytics' });
+  }
+});
+
+/**
+ * @route   GET /api/analytics/timeline
+ * @desc    Get income/expense data over a period for charting.
+ * @access  Private
+ */
+router.get('/timeline', validateAnalyticsQuery, validateDateRange, async (req, res) => {
+  try {
+    const { startDate, endDate, groupBy } = req.query;
+    const timelineData = await Transaction.getTimeline(req.user._id, { startDate, endDate, groupBy });
+    
+    res.json({ timeline: timelineData });
+    
+  } catch (error) {
+    console.error('Get timeline analytics error:', error);
+    res.status(500).json({ error: 'Failed to get timeline data' });
   }
 });
 
@@ -100,7 +119,6 @@ router.get('/trends', validateDateRange, async (req, res) => {
       }
     };
 
-    // FIX: Use the new getCategoryAnalytics function
     const expenseBreakdown = await Transaction.getCategoryAnalytics(req.user._id, { startDate, endDate, type: 'expense' });
     const topExpenseCategories = expenseBreakdown.slice(0, 5).map(item => ({ category: item._id, total: item.total }));
     
@@ -125,8 +143,6 @@ router.get('/insights', validateDateRange, async (req, res) => {
     const { startDate, endDate } = req.query;
     
     const summary = await Transaction.getSummary(req.user._id, { startDate, endDate });
-    
-    // FIX: Use the new getCategoryAnalytics function
     const categoryBreakdown = await Transaction.getCategoryAnalytics(req.user._id, { startDate, endDate, type: 'expense' });
 
     const insights = [];
@@ -191,8 +207,6 @@ router.get('/export', validateDateRange, async (req, res) => {
     }
 
     const summary = await Transaction.getSummary(req.user._id, { startDate, endDate });
-    
-    // FIX: Use the new getCategoryAnalytics function
     const categoryBreakdown = await Transaction.getCategoryAnalytics(req.user._id, { startDate, endDate });
     
     const exportData = { summary, categoryBreakdown };
@@ -224,7 +238,6 @@ function convertToCSV(data) {
   lines.push('CATEGORY BREAKDOWN');
   lines.push('Category,Count,Total,Average');
   data.categoryBreakdown.forEach(item => {
-    // FIX: Use item._id for category name
     lines.push(`"${item._id}",${item.count},${item.total},${item.avgAmount.toFixed(2)}`);
   });
   
