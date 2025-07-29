@@ -1,207 +1,116 @@
 # Personal Finance Assistant
 
-A personal finance management web application with user authentication, transaction tracking, receipt parsing, and financial analytics.
+A web application for personal finance management with user authentication, transaction tracking, receipt parsing (OCR), PDF import, and analytics. Built with React (Vite, Tailwind CSS), Node.js/Express, and MongoDB Atlas. Fully containerized with Docker Compose.
 
 ## Features
-
-- User authentication and data isolation
-- Income and expense management
-- Transaction history with filtering
-- Financial analytics and charts
-- Receipt upload with OCR
+- User registration, login, JWT authentication
+- Income and expense tracking
+- Transaction list with filters and pagination
+- Analytics: charts by category/date
+- Receipt upload with OCR (image/PDF)
 - PDF statement import
-- Responsive design with Tailwind CSS
+- Responsive UI (Tailwind CSS)
 
 ## Tech Stack
-
-- Frontend: React.js with Vite and Tailwind CSS
-- Backend: Node.js with Express.js
-- Database: MongoDB Atlas with Mongoose
-- Authentication: JWT tokens
-- File Upload: Multer
+- Frontend: React, Vite, Tailwind CSS
+- Backend: Node.js, Express
+- Database: MongoDB Atlas (Mongoose)
 - OCR: Tesseract.js
-- PDF Parsing: pdf-parse
+- PDF: pdf-parse
 - Charts: Chart.js
+- Containerization: Docker, Docker Compose
 
 ## Project Structure
-
 ```
 typeFace/
-├── frontend/          # React frontend application
-├── backend/           # Node.js/Express backend API
-├── database/          # Database setup scripts
-└── README.md          # This file
+├── frontend/   # React app (Vite, Tailwind)
+├── backend/    # Express API (Node.js)
+├── docker-compose.yml
+└── README.md
 ```
 
-## Setup
+## Quick Start (Docker Compose)
 
 ### Prerequisites
+- Docker & Docker Compose
+- MongoDB Atlas account (get your connection URI)
 
-- Node.js (v16 or higher)
-- MongoDB Atlas account
-- npm or yarn
+### 1. Set up environment variables
+Create a `.env` file in the project root (or export in your shell):
+```
+MONGODB_URI=your_mongodb_atlas_uri
+GEMINI_API_KEY=your_google_gemini_api_key
+```
 
-### MongoDB Atlas Setup
+### 2. Build and run all services
+```bash
+MONGODB_URI=your_mongodb_atlas_uri GEMINI_API_KEY=your_google_gemini_api_key docker-compose up --build
+```
+- Frontend: http://localhost:4173
+- Backend API: http://localhost:5001/api
 
-1. Create MongoDB Atlas Account
-   - Go to [MongoDB Atlas](https://www.mongodb.com/atlas)
-   - Sign up for a free account
-   - Create a new cluster (M0 Free tier)
+### 3. Stop services
+```bash
+docker-compose down
+```
 
-2. Configure Database Access
-   - Go to Database Access
-   - Create a new database user with read/write permissions
-   - Remember username and password
-
-3. Configure Network Access
-   - Go to Network Access
-   - Add your IP address or use `0.0.0.0/0` for all IPs
-
-4. Get Connection String
-   - Click "Connect" on your cluster
-   - Choose "Connect your application"
-   - Copy the connection string
-
-### Installation
-
-1. Clone and navigate to project
-   ```bash
-   cd typeFace
-   ```
-
-2. Install backend dependencies
-   ```bash
-   cd backend
-   npm install
-   ```
-
-3. Install frontend dependencies
-   ```bash
-   cd ../frontend
-   npm install
-   ```
-
-4. Configure environment variables
-   ```bash
-   cd ../backend
-   # Edit .env file with your MongoDB Atlas URI
-   ```
-
-5. Setup database
-   ```bash
-   npm run setup-db
-   ```
-
-### Running the Application
-
-1. Start backend server
-   ```bash
-   cd backend
-   npm start
-   ```
-
-2. Start frontend development server
-   ```bash
-   cd ../frontend
-   npm run dev
-   ```
-
-3. Open browser and navigate to `http://localhost:3000`
-
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-- `GET /api/auth/profile` - Get user profile
-- `PUT /api/auth/profile` - Update profile
-- `PUT /api/auth/password` - Change password
-- `DELETE /api/auth/account` - Delete account
-
-### Transactions
-- `GET /api/transactions` - Get user transactions
-- `POST /api/transactions` - Create transaction
-- `PUT /api/transactions/:id` - Update transaction
-- `DELETE /api/transactions/:id` - Delete transaction
-- `GET /api/transactions/summary` - Get transaction summary
-- `POST /api/transactions/bulk` - Bulk import transactions
-
-### Analytics
-- `GET /api/analytics/summary` - Get financial summary
-- `GET /api/analytics/categories` - Get category breakdown
-- `GET /api/analytics/timeline` - Get timeline data
-- `GET /api/analytics/trends` - Get spending trends
-- `GET /api/analytics/monthly` - Get monthly breakdown
-- `GET /api/analytics/insights` - Get financial insights
-- `GET /api/analytics/export` - Export data to CSV
-
-### File Upload
-- `POST /api/upload/receipt` - Upload receipt for OCR
-- `POST /api/upload/statement` - Upload PDF statement
+## Manual Development (No Docker)
+1. Install dependencies in both `backend/` and `frontend/`
+2. Set up `.env` files as below
+3. Start backend (`npm start` in `backend/`)
+4. Start frontend (`npm run dev` in `frontend/`)
 
 ## Environment Variables
 
-### Backend (.env)
+### Backend (`backend/.env`)
 ```
 PORT=5000
-JWT_SECRET=your_super_secret_jwt_key_change_this_in_production
-MONGODB_URI=mongodb+srv://your_username:your_password@your_cluster.mongodb.net/finance_assistant?retryWrites=true&w=majority
+JWT_SECRET=your_jwt_secret
+MONGODB_URI=your_mongodb_atlas_uri
+GEMINI_API_KEY=your_google_gemini_api_key
 NODE_ENV=development
 ```
+- `GEMINI_API_KEY` is used for Google Gemini API integration (for advanced OCR or AI features).
 
-### Frontend (.env)
+### Frontend (`frontend/.env`)
 ```
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=http://localhost:5001/api
 ```
 
-## Development
+## API Endpoints (Summary)
+- `POST   /api/auth/register`   Register
+- `POST   /api/auth/login`      Login
+- `GET    /api/auth/profile`    Get profile
+- `PUT    /api/auth/profile`    Update profile
+- `PUT    /api/auth/password`   Change password
+- `DELETE /api/auth/account`    Delete account
+- `GET    /api/transactions`    List transactions
+- `POST   /api/transactions`    Add transaction
+- `PUT    /api/transactions/:id` Update transaction
+- `DELETE /api/transactions/:id` Delete transaction
+- `GET    /api/transactions/summary` Summary
+- `POST   /api/transactions/bulk` Bulk import
+- `GET    /api/analytics/*`     Analytics endpoints
+- `POST   /api/upload/receipt`  Upload receipt (OCR)
+- `POST   /api/upload/statement` Upload PDF statement
 
-### Backend Scripts
-- `npm start` - Start production server
-- `npm run dev` - Start development server with nodemon
-- `npm run setup-db` - Setup database with sample data
-- `npm run test-connection` - Test MongoDB connection
+## Database Models
+- **User**: username, email, password (hashed)
+- **Transaction**: userId, amount, type, category, description, date, receiptUrl, tags
+- **Category**: name, type, color, userId
 
-### Frontend Scripts
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
+## Scripts
+### Backend
+- `npm start`      Start server
+- `npm run dev`    Dev mode (nodemon)
+- `npm run setup-db`  Seed database
+- `npm run test-connection`  Test DB connection
 
-## Database Schema
-
-### User
-- username (String, unique)
-- email (String, unique)
-- password (String, hashed)
-- timestamps
-
-### Transaction
-- userId (ObjectId, ref: User)
-- amount (Number)
-- type (String: 'income' | 'expense')
-- category (String)
-- description (String)
-- date (Date)
-- receiptUrl (String, optional)
-- tags (Array of Strings)
-- timestamps
-
-### Category
-- name (String)
-- type (String: 'income' | 'expense')
-- color (String)
-- userId (ObjectId, ref: User)
-- timestamps
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Make changes
-4. Test thoroughly
-5. Submit pull request
+### Frontend
+- `npm run dev`    Dev server
+- `npm run build`  Build for production
+- `npm run preview` Preview build
+- `npm run lint`   Lint code
 
 ## License
-
-MIT License 
+MIT 
