@@ -11,6 +11,9 @@ A web application for personal finance management with user authentication, tran
 - PDF statement import
 - Responsive UI (Tailwind CSS)
 
+## Demo
+📹 **Demo Video**: [Watch the application in action](https://www.loom.com/share/61de4e6494804c4e97232dc16bf7e7a5)
+
 ## Tech Stack
 - Frontend: React, Vite, Tailwind CSS
 - Backend: Node.js, Express
