@@ -65,6 +65,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
+          <Route path="/transactions/new" element={<Transactions isNew={true} />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/profile" element={<Profile />} />
